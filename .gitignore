@@ -1,4 +1,5 @@
 *.csv
 /__pycache__
 /lightning_logs
+/checkpoint
 *.ipynb
