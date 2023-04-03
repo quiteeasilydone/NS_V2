@@ -10,7 +10,7 @@ import torchvision.models.video as video
 class attention_detr(nn.Module):
     def __init__(self, batch_size):
         super().__init__()
-        self.model = torch.hub.load('facebookresearch/detr', 'detr_resnet50', pretrained=True).eval()
+        self.model = torch.hub.load('facebookresearch/detr', 'detr_resnet50', pretrained=True)
         self.batch_size = batch_size
     
     def attention_score(self, x_list, batch_size):
@@ -42,6 +42,7 @@ class VideoClassificationLightningModule(pytorch_lightning.LightningModule):
         super().__init__()
         self.backbone = self.create_model(model_name=model_name)
         self.attention_weights = attention_detr(batch_size)
+        self.attention_weights.eval()
         self.batch_size = batch_size
         self.train_ratio = 0.8
         
@@ -148,5 +149,5 @@ class VideoClassificationLightningModule(pytorch_lightning.LightningModule):
     
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
         return [optimizer], [scheduler]
