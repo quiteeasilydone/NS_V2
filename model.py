@@ -42,7 +42,6 @@ class VideoClassificationLightningModule(pytorch_lightning.LightningModule):
         super().__init__()
         self.backbone = self.create_model(model_name=model_name)
         self.attention_weights = attention_detr(batch_size)
-        self.attention_weights.eval()
         self.batch_size = batch_size
         self.train_ratio = 0.8
         
@@ -104,8 +103,9 @@ class VideoClassificationLightningModule(pytorch_lightning.LightningModule):
 
     def forward(self, x):
         attention_input = torch.einsum('bcfhw -> bfchw', x)
-        attention_mask = self.attention_weights(attention_input)
-
+        self.attention_weights.eval()
+        with torch.no_grad():
+            attention_mask = self.attention_weights(attention_input)
         attention_mask = attention_mask.unsqueeze(1)
         input_x = torch.cat((x, attention_mask), dim = 1)
         output = self.backbone(input_x)
