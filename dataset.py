@@ -25,8 +25,8 @@ class CustomDataset(torch.utils.data.Dataset):
         mean = [0.45, 0.45, 0.45]
         std = [0.225, 0.225, 0.225]
         crop_size = 224
-        num_frames = 8
-        sampling_rate = 8
+        num_frames = 16
+        sampling_rate = 16
         frames_per_second = 30
 
         self.transform =  ApplyTransformToKey(
