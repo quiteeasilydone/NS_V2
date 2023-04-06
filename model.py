@@ -3,111 +3,90 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn as nn
 import torch
-import pytorch_lightning
-import pytorchvideo.models as models
-import torchvision.models.video as video
+import pytorch_lightning as pl
 
-class attention_detr(nn.Module):
-    def __init__(self, batch_size):
+class attention_mask(nn.Module):
+    def __init__(self, transformer, attention_layer_name='attn_drop', head_fusion="mean", discard_ratio=0.9, device = 'cuda'):
         super().__init__()
-        self.model = torch.hub.load('facebookresearch/detr', 'detr_resnet50', pretrained=True)
-        self.batch_size = batch_size
-    
-    def attention_score(self, x_list, batch_size):
-        enc_attn_weights = []
+        self._device = device
+        self.model = transformer
+        self.head_fusion = head_fusion
+        self.discard_ratio = discard_ratio
+        self.attentions = []
+        for name, module in self.model.named_modules():
+            if attention_layer_name in name:
+                module.register_forward_hook(self.get_attention)
 
-        hooks = [self.model.transformer.encoder.layers[-1].self_attn.register_forward_hook(lambda self, input, output: enc_attn_weights.append(output[1]))]
+    def get_attention(self, module, input, output):
+        self.attentions.append(output)
+
+    def rollout(self, attentions, discard_ratio, head_fusion):
+        result = torch.eye(attentions[0].size(-1), device=self._device)
+        with torch.no_grad():
+            for attention in attentions:
+                if head_fusion == "mean":
+                    attention_heads_fused = attention.mean(axis=1)
+                elif head_fusion == "max":
+                    attention_heads_fused = attention.max(axis=1)[0]
+                elif head_fusion == "min":
+                    attention_heads_fused = attention.min(axis=1)[0]
+                else:
+                    raise "Attention head fusion type Not supported"
+
+            # Drop the lowest attentions, but
+            # don't drop the class token
+                flat = attention_heads_fused.view(attention_heads_fused.size(0), -1)
+                _, indices = flat.topk(int(flat.size(-1)*discard_ratio), -1, False)
+                indices = indices[indices != 0]
+                flat[0, indices] = 0
+
+                I = torch.eye(attention_heads_fused.size(-1), device=self._device)
+                a = (attention_heads_fused + 1.0*I)/2
+                a = a / a.sum(dim=-1)
+
+                result = torch.matmul(a, result)
+        mask = result[0, 0 , 1 :]
+    # In case of 224x224 image, this brings us from 196 to 14
+        width = int(mask.size(-1)**0.5)
+        mask = mask.reshape(width, width)
+        mask = mask / torch.max(mask)
         
-        for i in range(batch_size):
-            self.model(x_list[i])
-
-        for hook in hooks:
-            hook.remove()
-
-        first_weight = enc_attn_weights.pop(0)
-        first_weight = first_weight.unsqueeze(0)
-        for weights in enc_attn_weights:
-            weights = weights.unsqueeze(0)
-            first_weight = torch.cat((first_weight, weights))
-        
-        enc_attn_weights = first_weight
-
-        return enc_attn_weights
+        return mask
     
     def forward(self, x):
-        return self.attention_score(x, self.batch_size)
+        b,c,h,w = x.size()
+        self.attentions = []
+        with torch.no_grad():
+            output = self.model(x)
+        mask = self.rollout(self.attentions, self.discard_ratio, self.head_fusion)
+        mask = mask.unsqueeze(0).unsqueeze(0)
+        mask = F.interpolate(mask, (h,w), mode='bilinear')
 
-class VideoClassificationLightningModule(pytorch_lightning.LightningModule):
-    def __init__(self, model_name, batch_size):
+        return mask
+
+class Videomodel(pl.LightningModule):
+    def __init__(self, backbone, transformer, device = 'cuda'):
         super().__init__()
-        self.backbone = self.create_model(model_name=model_name)
-        self.attention_weights = attention_detr(batch_size)
-        self.batch_size = batch_size
-        self.train_ratio = 0.8
-        
-    def create_model(self, model_name, pretrained=True):
-
-        if model_name == 'slow_r50':
-            model = torch.hub.load('facebookresearch/pytorchvideo', model_name, pretrained=pretrained)
-            model.blocks[0].conv = nn.Conv3d(4, 64, kernel_size=(1,7,7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
-            model.blocks[5].proj = nn.Linear(2048, 1, bias=True)
-            return model
-        
-        elif model_name == 'slowfast_r50':
-            model = torch.hub.load('facebookresearch/pytorchvideo', model_name, pretrained=pretrained)
-            model.blocks[0].conv = nn.Conv3d(4, 64, kernel_size=(1,7,7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
-            model.blocks[6].proj = nn.Linear(2304, 1, bias=True)
-            return model           
-        
-        elif model_name == 'x3d_s':
-            model = torch.hub.load('facebookresearch/pytorchvideo', model_name, pretrained=pretrained)
-            model.blocks[0].conv_t = nn.Conv3d(4, 24, kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1), bias=False)
-            model.blocks[5].proj = nn.Linear(2048, 1, bias=True)
-            return model         
-                      
-        elif model_name == 'csn':
-            model = models.create_csn()
-            model.blocks[0].conv = nn.Conv3d(4, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
-            model.blocks[5].proj = nn.Linear(2048, 1, bias=True)
-            return model 
-          
-        elif model_name == 'r2plus1d':
-            model = video.r2plus1d_18(pretrained = True)
-            model.stem[0] = nn.Conv3d(4, 45, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
-            model.fc = nn.Linear(512, 1, bias=True)
-            return model     
+        self._device = device
+        self.attention_mask_generator = attention_mask(transformer, device=self._device)
+        self.backbone = backbone
     
-        elif model_name == 'mc3_18':
-            model = video.mc3_18(pretrained = True)
-            model.stem[0] = nn.Conv3d(4, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
-            model.fc = nn.Linear(512, 1, bias=True)
-            return model     
-              
-        elif model_name == 's3d':
-            model = video.s3d(pretrained = True)
-            model.features[0][0][0] = nn.Conv3d(4, 64, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
-            model.classifier[1] = nn.Conv3d(1024, 1, kernel_size=(1, 1, 1), stride=(1, 1, 1))
-            return model      
-             
-        elif model_name == 'mvit_v1_b':
-            model = video.mvit_v1_b(pretrained = True)
-            model.conv_proj = nn.Conv3d(4, 96, kernel_size=(3, 7, 7), stride=(2, 4, 4), padding=(1, 3, 3))
-            model.head[1] = nn.Linear(768, 1, bias=True)
-            return model
-                
-        elif model_name == 'mvit_v2_s':
-            model = video.mvit_v2_s(pretrained = True)
-            model.conv_proj = nn.Conv3d(4, 96, kernel_size=(3, 7, 7), stride=(2, 4, 4), padding=(1, 3, 3))
-            model.head[1] = nn.Linear(768, 1, bias=True)
-            return model
-
     def forward(self, x):
         attention_input = torch.einsum('bcfhw -> bfchw', x)
-        self.attention_weights.eval()
-        with torch.no_grad():
-            attention_mask = self.attention_weights(attention_input)
-        attention_mask = attention_mask.unsqueeze(1)
-        input_x = torch.cat((x, attention_mask), dim = 1)
+        b,f,c,h,w = attention_input.size()
+        batch_masks = []
+        for batch in range(b):
+            masks = []
+            for frame in range(f):
+                input_img = attention_input[batch][frame].unsqueeze(0)
+                attention = self.attention_mask_generator(input_img)
+                attention = attention.squeeze()
+                masks.append(attention)
+            tensor_masks = torch.stack(masks, dim = 0)
+            batch_masks.append(tensor_masks)
+        tensor_batch_masks = torch.stack(batch_masks, dim = 0)
+        tensor_batch_masks = tensor_batch_masks.unsqueeze(dim = 1)
+        input_x = torch.cat((x, tensor_batch_masks), dim=1)
         output = self.backbone(input_x)
 
         return output

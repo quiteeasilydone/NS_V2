@@ -21,10 +21,10 @@ class CustomDataset(torch.utils.data.Dataset):
         
         self.df_dataset = df_dataset
 
-        side_size = 1024
+        side_size = 224
         mean = [0.45, 0.45, 0.45]
         std = [0.225, 0.225, 0.225]
-        crop_size = 1024
+        crop_size = 224
         num_frames = 8
         sampling_rate = 8
         frames_per_second = 30
