@@ -41,7 +41,7 @@ def create_model(model_name, pretrained=True):
     
     elif model_name == 'x3d_s':
         model = torch.hub.load('facebookresearch/pytorchvideo', model_name, pretrained=pretrained)
-        model.blocks[0].conv_t = nn.Conv3d(4, 24, kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1), bias=False)
+        model.blocks[0].conv.conv_t = nn.Conv3d(4, 24, kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1), bias=False)
         model.blocks[5].proj = nn.Linear(2048, 1, bias=True)
         return model         
                     
