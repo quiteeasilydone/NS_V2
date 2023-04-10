@@ -23,6 +23,7 @@ def get_args_parser():
     parser.add_argument('--device', default=1, type=int)
     parser.add_argument('--accelerator', default='cuda', type=str)
     parser.add_argument('--model_name',default='slow_r50', type=str)
+    parser.add_argument('--strategy', default=None, type=str)
     return parser
 
 def create_model(model_name, pretrained=True):
@@ -90,8 +91,11 @@ if __name__ == '__main__':
     # logger = TensorBoardLogger('./tensorboard_log' )
     checkpoint_root = os.path.join('./checkpoint', args.model_name)
     checkpoint_callback = ModelCheckpoint(dirpath=checkpoint_root, save_top_k=1, monitor='val_loss', mode = 'min', save_last=True)
-
+    if args.strategy == 'ddp':
+        strategy = 'ddp_find_unused_parameters_true'
+    else:
+        strategy = None
     model = Videomodel(backbone = backbone, transformer = transformer, device=args.accelerator)
     data_module = CustomDataModule(batch_size = args.batch_size, num_workers = args.num_workers)
-    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.device, max_epochs=args.epochs, callbacks=[checkpoint_callback])
+    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.device, max_epochs=args.epochs, callbacks=[checkpoint_callback], strategy=strategy)
     trainer.fit(model, data_module)
