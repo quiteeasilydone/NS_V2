@@ -28,7 +28,8 @@ def get_args_parser():
 def create_model(pretrained=True):
     model_name = 'slowfast_r50'
     model = torch.hub.load('facebookresearch/pytorchvideo', model_name, pretrained=pretrained)
-    model.blocks[0].conv = nn.Conv3d(4, 64, kernel_size=(1,7,7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
+    model.blocks[0].multipathway_blocks[0].conv= nn.Conv3d(4, 64, kernel_size=(1,7,7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
+    model.blocks[0].multipathway_blocks[1].conv= nn.Conv3d(4, 8, kernel_size=(5,7,7), stride=(1, 2, 2), padding=(2, 3, 3), bias=False)
     model.blocks[6].proj = nn.Linear(2304, 1, bias=True)
     return model
     
