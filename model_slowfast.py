@@ -73,21 +73,24 @@ class Videomodel(pl.LightningModule):
         self.backbone = backbone
     
     def forward(self, x):
-        attention_input = torch.einsum('bcfhw -> bfchw', x)
-        b,f,c,h,w = attention_input.size()
-        batch_masks = []
-        for batch in range(b):
-            masks = []
-            for frame in range(f):
-                input_img = attention_input[batch][frame].unsqueeze(0)
-                attention = self.attention_mask_generator(input_img)
-                attention = attention.squeeze()
-                masks.append(attention)
-            tensor_masks = torch.stack(masks, dim = 0)
-            batch_masks.append(tensor_masks)
-        tensor_batch_masks = torch.stack(batch_masks, dim = 0)
-        tensor_batch_masks = tensor_batch_masks.unsqueeze(dim = 1)
-        input_x = torch.cat((x, tensor_batch_masks), dim=1)
+        input_x = []
+        for inputs in x:
+            attention_input = torch.einsum('bcfhw -> bfchw', inputs)
+            b,f,c,h,w = attention_input.size()
+            batch_masks = []
+            for batch in range(b):
+                masks = []
+                for frame in range(f):
+                    input_img = attention_input[batch][frame].unsqueeze(0)
+                    attention = self.attention_mask_generator(input_img)
+                    attention = attention.squeeze()
+                    masks.append(attention)
+                tensor_masks = torch.stack(masks, dim = 0)
+                batch_masks.append(tensor_masks)
+            tensor_batch_masks = torch.stack(batch_masks, dim = 0)
+            tensor_batch_masks = tensor_batch_masks.unsqueeze(dim = 1)
+            input_attention = torch.cat((inputs, tensor_batch_masks), dim=1)
+            input_x.append(input_attention)
         output = self.backbone(input_x)
 
         return output
