@@ -3,3 +3,6 @@
 /lightning_logs
 /checkpoint
 *.ipynb
+*.json
+/tensorboard_log
+*.jpg

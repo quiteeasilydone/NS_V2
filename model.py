@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import torch
 import pytorch_lightning as pl
-import sklearn.metrics as mt
+import torchmetrics as tm
 
 class attention_mask(nn.Module):
     def __init__(self, transformer, attention_layer_name='attn_drop', head_fusion="mean", discard_ratio=0.9, device = 'cuda'):
@@ -80,6 +80,7 @@ class Videomodel(pl.LightningModule):
             masks = []
             for frame in range(f):
                 input_img = attention_input[batch][frame].unsqueeze(0)
+                # input_img.to('cuda')
                 attention = self.attention_mask_generator(input_img)
                 attention = attention.squeeze()
                 masks.append(attention)
@@ -115,13 +116,12 @@ class Videomodel(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         video_data, label = batch
         pred = self.forward(video_data)
-        R2_score = mt.r2_score(label, pred)
-        MSE_error = mt.mean_squared_error(label, pred)
-        MAE_error = mt.mean_absolute_error(label, pred)
-        
-        self.log("MAE_error", MAE_error)
-        self.log("MSE_error", MSE_error)
-        self.log("R2_score", R2_score)
+        MSE_error = tm.MeanSquaredError().to('cuda')
+        MAE_error = tm.MeanAbsoluteError().to('cuda')
+        mse = MSE_error(pred, label)
+        mae = MAE_error(pred, label)
+        self.log("MAE_error", mae)
+        self.log("MSE_error", mse)
     
     def predict_step(self, batch, batch_idx, dataloader_idx):
         video_data, label = batch

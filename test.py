@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch
 import timm
 import argparse
+import json
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set Model', add_help=False)
@@ -85,12 +86,17 @@ def create_model(model_name, pretrained=True):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Model Script', parents=[get_args_parser()])
     args = parser.parse_args()
-    backbone = create_model(model_name=args.model_name)
-    transformer = torch.hub.load('facebookresearch/deit:main', 'deit_tiny_patch16_224', pretrained = True)
+    test_all = {}
+    for model_name in ['slow_r50', 'x3d_s', 'csn', 'mc3_18', 'mvit_v1_b', 'mvit_v2_s', 'r2plus1d', 's3d']:
+        backbone = create_model(model_name=model_name)
+        transformer = torch.hub.load('facebookresearch/deit:main', 'deit_tiny_patch16_224', pretrained = True)
     # logger = TensorBoardLogger('./tensorboard_log' )
-    checkpoint_root = os.path.join('./checkpoint', args.model_name)
-    checkpoint_callback = ModelCheckpoint(dirpath=checkpoint_root, save_top_k=1, monitor='val_loss', mode = 'min', save_last=True)
-    model = Videomodel(backbone = backbone, transformer = transformer, device=args.accelerator)
-    data_module = CustomDataModule(batch_size = args.batch_size, num_workers = args.num_workers)
-    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.device, max_epochs=args.epochs, callbacks=[checkpoint_callback])
-    trainer.test(model, data_module)
+        checkpoint_root = os.path.join('./checkpoint', model_name,'last.ckpt')
+    # checkpoint_callback = ModelCheckpoint(dirpath=checkpoint_root, save_top_k=1, monitor='val_loss', mode = 'min', save_last=True)
+        model = Videomodel.load_from_checkpoint(backbone = backbone, transformer = transformer, device=args.accelerator, checkpoint_path=checkpoint_root)
+        data_module = CustomDataModule(batch_size = args.batch_size, num_workers = args.num_workers)
+        trainer = pl.Trainer(accelerator=args.accelerator, devices=args.device, max_epochs=args.epochs)
+        result = trainer.test(model, data_module)
+        test_all[model_name] = result
+    with open('./test.json', 'w') as f:
+        json.dump(test_all, f)

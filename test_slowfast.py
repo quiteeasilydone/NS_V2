@@ -37,16 +37,12 @@ def create_model(pretrained=True):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Model Script', parents=[get_args_parser()])
     args = parser.parse_args()
-    backbone = create_model()
+    backbone = create_model(model_name=args.model_name)
     transformer = torch.hub.load('facebookresearch/deit:main', 'deit_tiny_patch16_224', pretrained = True)
     # logger = TensorBoardLogger('./tensorboard_log' )
-    checkpoint_root = os.path.join('./checkpoint', 'slowfast_r50')
-    checkpoint_callback = ModelCheckpoint(dirpath=checkpoint_root, save_top_k=1, monitor='val_loss', mode = 'min', save_last=True)
-    if args.strategy == 'ddp':
-        strategy = 'ddp_find_unused_parameters_true'
-    else:
-        strategy = None
-    model = Videomodel(backbone = backbone, transformer = transformer, device=args.accelerator)
+    checkpoint_root = os.path.join('./checkpoint', args.model_name,'last.ckpt')
+    # checkpoint_callback = ModelCheckpoint(dirpath=checkpoint_root, save_top_k=1, monitor='val_loss', mode = 'min', save_last=True)
+    model = Videomodel.load_from_checkpoint(backbone = backbone, transformer = transformer, device=args.accelerator, checkpoint_path=checkpoint_root)
     data_module = CustomDataModule(batch_size = args.batch_size, num_workers = args.num_workers)
-    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.device, max_epochs=args.epochs, callbacks=[checkpoint_callback], strategy=strategy)
-    trainer.fit(model, data_module)
+    trainer = pl.Trainer(accelerator=args.accelerator, devices=args.device, max_epochs=args.epochs)
+    trainer.test(model, data_module)
